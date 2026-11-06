@@ -13,9 +13,9 @@ Este proyecto despliega un Dashboard interactivo de Mantenimiento Predictivo (Pd
 1. **Modelado Predictivo:** Algoritmo **XGBoost Regressor** entrenado con selección y reducción de características de 21 sensores y variables operacionales a las 17 señales de mayor significancia y varianza.
 2. **Monitoreo en Tiempo Real:** Visualización dinámica de la degradación térmica (`sensor_2`) y de presión (`sensor_20`) a lo largo del ciclo de vida útil del motor.
 3. **Alertas Tácticas de Mantenimiento:** Diagnóstico automatizado según el umbral de seguridad:
-   * 🟢 **Estado Nominal:** RUL > 45 ciclos (Operación continua aprobada).
-   * 🟡 **Advertencia:** 20 < RUL ≤ 45 ciclos (Inspección programada recomendada).
-   * 🔴 **Alerta Máxima:** RUL ≤ 20 ciclos (Retiro inmediato y revisión funcional).
+   * **Estado Nominal:** RUL > 45 ciclos (Operación continua aprobada).
+   * **Advertencia:** 20 < RUL ≤ 45 ciclos (Inspección programada recomendada).
+   * **Alerta Máxima:** RUL ≤ 20 ciclos (Retiro inmediato y revisión funcional).
 
 ---
 
