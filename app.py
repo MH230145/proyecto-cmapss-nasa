@@ -60,17 +60,19 @@ if model is not None and df is not None:
     # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle]
     
-    # Lista estandarizada de las 16 características de entrenamiento (2 settings + 14 sensores)
-    default_features = ['setting_1', 'setting_2', 'sensor_2', 'sensor_3', 'sensor_4', 
-                        'sensor_7', 'sensor_8', 'sensor_9', 'sensor_11', 'sensor_12', 
-                        'sensor_13', 'sensor_14', 'sensor_15', 'sensor_17', 'sensor_20', 'sensor_21']
-    
-    if hasattr(scaler, "feature_names_in_"):
-        expected_cols = list(scaler.feature_names_in_)
-    else:
-        expected_cols = default_features
+    # Extraer las características EXACTAS registradas dentro del modelo XGBoost
+    try:
+        expected_cols = model.get_booster().feature_names
+    except Exception:
+        if hasattr(model, "feature_names_in_"):
+            expected_cols = list(model.feature_names_in_)
+        elif hasattr(scaler, "feature_names_in_"):
+            expected_cols = list(scaler.feature_names_in_)
+        else:
+            ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19', 'Unnamed: 0']
+            expected_cols = [c for c in df.columns if c not in ignore_cols]
 
-    # Construir X_input garantizando las columnas exactas
+    # Construir X_input mapeando exactamente los nombres solicitados por XGBoost
     X_input = pd.DataFrame()
     for col in expected_cols:
         if col in current_row.columns:
@@ -78,16 +80,12 @@ if model is not None and df is not None:
         else:
             X_input[col] = 0.0
 
-    # BYPASS DEFINITIVO: Convertir a arreglo de NumPy puro para omitir validación de nombres en el Scaler
-    raw_array = X_input.values.astype(np.float32)
-    scaled_array = scaler.transform(raw_array)
+    # Escalar usando la matriz numérica y reconstruir DataFrame etiquetado para XGBoost
+    raw_scaled = scaler.transform(X_input.values)
+    X_scaled_df = pd.DataFrame(raw_scaled, columns=expected_cols)
     
-    # Intentar predicción con el modelo
-    try:
-        rul_pred = float(model.predict(scaled_array)[0])
-    except Exception:
-        X_scaled_df = pd.DataFrame(scaled_array, columns=expected_cols)
-        rul_pred = float(model.predict(X_scaled_df)[0])
+    # Predicción final sin descalce de nombres
+    rul_pred = float(model.predict(X_scaled_df)[0])
     
     # Métricas Principales
     col1, col2, col3 = st.columns(3)
