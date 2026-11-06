@@ -34,7 +34,6 @@ def load_data():
     try:
         data_path = os.path.join("data", "processed", "train_processed_df.csv")
         df = pd.read_csv(data_path)
-        # Limpiar espacios en blanco accidentales en nombres de columnas
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
@@ -46,7 +45,7 @@ model, scaler = load_artifacts()
 df = load_data()
 
 if model is not None and df is not None:
-    # 1. Identificación dinámica de columnas de control (ID y Ciclo)
+    # Identificación dinámica de columnas de control
     id_col = next((col for col in ['unit_nr', 'engine_id', 'id'] if col in df.columns), df.columns[0])
     cycle_col = next((col for col in ['time_cycles', 'cycle', 'time'] if col in df.columns), df.columns[1])
     
@@ -62,31 +61,23 @@ if model is not None and df is not None:
     # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle].copy()
     
-    # 2. Extracción de las 16 características esperadas (Fallback multinivel)
-    expected_cols = None
-    
-    # Intento A: Nombres desde el Booster de XGBoost
-    try:
-        booster_cols = model.get_booster().feature_names
-        if booster_cols is not None and len(booster_cols) > 0:
-            expected_cols = list(booster_cols)
-    except Exception:
-        pass
-        
-    # Intento B: Nombres desde scikit-learn feature_names_in_
-    if expected_cols is None:
-        if hasattr(model, "feature_names_in_"):
-            expected_cols = list(model.feature_names_in_)
-        elif hasattr(scaler, "feature_names_in_"):
-            expected_cols = list(scaler.feature_names_in_)
-            
-    # Intento C: Lista predeterminada de 16 características estándar (FD001)
-    if expected_cols is None:
-        expected_cols = ['setting_1', 'setting_2', 'sensor_2', 'sensor_3', 'sensor_4', 
-                         'sensor_7', 'sensor_8', 'sensor_9', 'sensor_11', 'sensor_12', 
-                         'sensor_13', 'sensor_14', 'sensor_15', 'sensor_17', 'sensor_20', 'sensor_21']
+    # Obtener las 21 columnas exactas que requiere el escalador (MinMaxScaler)
+    if hasattr(scaler, "feature_names_in_"):
+        expected_cols = list(scaler.feature_names_in_)
+    else:
+        # 3 Operational Settings + 21 Sensors = 24 total (21 features en FD001 tras descartes de varianza)
+        expected_cols = [c for c in df.columns if c not in [id_col, cycle_col, 'RUL', 'Unnamed: 0']]
+        if len(expected_cols) != getattr(scaler, 'n_features_in_', len(expected_cols)):
+            # Construcción estándar C-MAPSS de 24 señales
+            expected_cols = [f'setting_{i}' for i in range(1, 4)] + [f'sensor_{i}' for i in range(1, 22)]
+            expected_cols = [c for c in expected_cols if c in df.columns]
 
-    # 3. Construir vector de datos alineado sin nulos ni KeyErrors
+    # Construir X_input asegurando el número exacto de características del Scaler (ej. 21)
+    if hasattr(scaler, "n_features_in_") and len(expected_cols) != scaler.n_features_in_:
+        # Filtrar solo columnas de sensores/settings existentes hasta igualar el n_features_in_
+        candidates = [c for c in df.columns if 'sensor' in c.lower() or 'setting' in c.lower()]
+        expected_cols = candidates[:scaler.n_features_in_]
+
     X_input = pd.DataFrame(index=[0])
     for col in expected_cols:
         if col in current_row.columns:
@@ -95,22 +86,25 @@ if model is not None and df is not None:
         else:
             X_input[col] = 0.0
 
-    # 4. Pipeline de Predicción Universal con Bypass de Firma
+    # Inferencia con manejo robusto
     try:
-        # Intento 1: Transformación numérica con nombres de columna de DataFrame
         raw_scaled = scaler.transform(X_input.values)
-        X_scaled_df = pd.DataFrame(raw_scaled, columns=expected_cols)
-        rul_pred = float(model.predict(X_scaled_df)[0])
-    except Exception:
+        
+        # Intentar predecir con DataFrame o con Array según requiera el modelo
         try:
-            # Intento 2: Arreglo de NumPy directo (Bypass para modelos sin nombres)
-            raw_scaled = scaler.transform(X_input.values.astype(np.float32))
+            if hasattr(model, "feature_names_in_"):
+                X_scaled_df = pd.DataFrame(raw_scaled, columns=list(model.feature_names_in_))
+                rul_pred = float(model.predict(X_scaled_df)[0])
+            else:
+                rul_pred = float(model.predict(raw_scaled)[0])
+        except Exception:
             rul_pred = float(model.predict(raw_scaled)[0])
-        except Exception as e_pred:
-            st.error(f"Error procesando la inferencia del modelo: {e_pred}")
-            rul_pred = 0.0
+            
+    except Exception as e_pred:
+        st.error(f"Error procesando la inferencia del modelo: {e_pred}")
+        rul_pred = 0.0
     
-    # 5. Visualización de Métricas Principales
+    # Visualización de Métricas Principales
     col1, col2, col3 = st.columns(3)
     col1.metric("Motor Bajo Análisis", f"Unidad #{selected_engine}")
     col2.metric("Ciclo Evaluado", f"{selected_cycle} / {max_cycle}")
@@ -118,7 +112,7 @@ if model is not None and df is not None:
     
     st.write("---")
     
-    # 6. Diagnóstico Táctico y Alertas de Mantenimiento (PdM)
+    # Diagnóstico Táctico y Alertas de Mantenimiento (PdM)
     st.subheader("🔴 / 🟡 / 🟢 Diagnóstico de Mantenimiento Predictivo")
     if rul_pred > 45:
         st.success(f"🟢 **ESTADO NOMINAL:** El motor #{selected_engine} posee un margen seguro de {rul_pred:.1f} ciclos remanentes. Operación continua aprobada.")
@@ -129,14 +123,10 @@ if model is not None and df is not None:
         
     st.write("---")
     
-    # 7. Gráfico Dinámico de Telemetría e Inspección Visual
+    # Gráfico Dinámico de Telemetría e Inspección Visual
     st.subheader("📊 Histórico de Telemetría y Monitoreo de Sensores Críticos")
     
-    # Buscar sensores disponibles en el dataset para el selector del gráfico
     sensor_options = [c for c in df.columns if 'sensor' in c.lower()]
-    if not sensor_options:
-        sensor_options = [c for c in expected_cols if c in df.columns]
-        
     if sensor_options:
         sensor_to_plot = st.selectbox("Seleccionar Sensor para Inspeccionar Visualmente:", sensor_options)
         
@@ -148,8 +138,6 @@ if model is not None and df is not None:
         )
         fig.add_vline(x=selected_cycle, line_dash="dash", line_color="red", annotation_text="Ciclo Seleccionado")
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No se encontraron columnas de sensores de telemetría para graficar.")
 
 else:
     st.warning("Verificando la disponibilidad de los artefactos en data/processed/ y models/...")
