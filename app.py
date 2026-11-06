@@ -44,25 +44,29 @@ model, scaler = load_artifacts()
 df = load_data()
 
 if model is not None and df is not None:
+    # Identificación dinámica de columnas principales
+    id_col = 'unit_nr' if 'unit_nr' in df.columns else ('engine_id' if 'engine_id' in df.columns else df.columns[0])
+    cycle_col = "time_cycles" if "time_cycles" in df.columns else ("cycle" if "cycle" in df.columns else df.columns[1])
+    
     # Sidebar: Selección de Unidad y Ciclo
     st.sidebar.header("⚙️ Panel de Control de Inspección")
-    id_col = 'unit_nr' if 'unit_nr' in df.columns else ('engine_id' if 'engine_id' in df.columns else df.columns[0])
     engine_list = sorted(df[id_col].unique())
-    
     selected_engine = st.sidebar.selectbox("Seleccionar ID de Motor:", engine_list)
-    cycle_col = "time_cycles" if "time_cycles" in df.columns else ("cycle" if "cycle" in df.columns else df.columns[1])
-    engine_data = df[df[id_col] == selected_engine].sort_values(cycle_col)
     
+    engine_data = df[df[id_col] == selected_engine].sort_values(cycle_col)
     max_cycle = int(engine_data[cycle_col].max())
     selected_cycle = st.sidebar.slider("Ciclo de Vuelo Actual:", min_value=1, max_value=max_cycle, value=max_cycle)
     
-    # Datos en el ciclo seleccionado
+    # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle]
     
-    # Definición de características para predicción
-    ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19']
-    feature_cols = [c for c in df.columns if c not in ignore_cols]
-    
+    # Alineación estricta de características con las del Scaler/Model
+    if hasattr(scaler, "feature_names_in_"):
+        feature_cols = list(scaler.feature_names_in_)
+    else:
+        ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19', 'Unnamed: 0']
+        feature_cols = [c for c in df.columns if c not in ignore_cols]
+        
     X_input = current_row[feature_cols]
     X_scaled = scaler.transform(X_input)
     rul_pred = float(model.predict(X_scaled)[0])
