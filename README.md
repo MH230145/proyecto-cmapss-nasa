@@ -22,19 +22,26 @@ Este proyecto despliega un Dashboard interactivo de Mantenimiento Predictivo (Pd
 ## Estructura del Repositorio
 
 ```text
-.
+proyecto-cmapss-nasa/
+├── .devcontainer/
+│   └── devcontainer.json
 ├── data/
 │   ├── processed/
-│   │   └── train_processed_df.csv    # Conjunto de datos procesado y normalizado
+│   │   ├── .gitkeep
+│   │   ├── scaler_fd001.pkl          # Escalador normalizador (MinMaxScaler)
+│   │   └── train_processed_df.csv    # Dataset procesado y normalizado
 │   └── raw/
-│       ├── train_FD001.txt           # Datos crudos de entrenamiento C-MAPSS
+│       ├── .gitkeep
+│       ├── RUL_FD001.txt             # Valores reales de RUL objetivo
 │       ├── test_FD001.txt            # Datos crudos de prueba C-MAPSS
-│       └── RUL_FD001.txt             # Valores reales de RUL objetivo
+│       └── train_FD001.txt           # Datos crudos de entrenamiento C-MAPSS
 ├── models/
-│   ├── best_model_fd001.pkl          # Modelo XGBoost serializado
-│   └── scaler_fd001.pkl              # Escalador normalizador (MinMaxScaler/StandardScaler)
+│   ├── .gitkeep
+│   └── best_model_fd001.pkl          # Modelo XGBoost serializado
 ├── notebooks/
+│   ├── .gitkeep
 │   └── pipeline_cmapss_fd001.ipynb   # Pipeline de EDA, preprocesamiento y entrenamiento
+├── reports/
+├── README.md                         # Documentación principal del proyecto
 ├── app.py                            # Código fuente de la interfaz Streamlit
-├── requirements.txt                  # Dependencias del proyecto
-└── README.md                         # Documentación del proyecto
+└── requirements.txt                  # Dependencias del proyecto
