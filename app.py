@@ -31,14 +31,24 @@ def load_artifacts():
 
 @st.cache_data
 def load_data():
-    try:
-        data_path = os.path.join("data", "processed", "train_processed_df.csv")
-        df = pd.read_csv(data_path)
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"⚠️ Error al cargar el archivo procesado CSV: {e}")
-        return None
+    # Intento de lectura tolerante a mayúsculas/minúsculas en el nombre del archivo
+    possible_paths = [
+        os.path.join("data", "processed", "Train_processed_df.csv"),
+        os.path.join("data", "processed", "train_processed_df.csv")
+    ]
+    
+    for data_path in possible_paths:
+        if os.path.exists(data_path):
+            try:
+                df = pd.read_csv(data_path)
+                df.columns = df.columns.str.strip()
+                return df
+            except Exception as e:
+                st.error(f"⚠️ Error al leer {data_path}: {e}")
+                return None
+                
+    st.error("⚠️ No se encontró el archivo CSV procesado en data/processed/ (verificar Mayúsculas/Minúsculas).")
+    return None
 
 # Cargar componentes principales
 model, scaler = load_artifacts()
@@ -61,20 +71,14 @@ if model is not None and df is not None:
     # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle].copy()
     
-    # Obtener las 21 columnas exactas que requiere el escalador (MinMaxScaler)
+    # Obtener las columnas exactas requeridas por el escalador (MinMaxScaler)
     if hasattr(scaler, "feature_names_in_"):
         expected_cols = list(scaler.feature_names_in_)
     else:
-        # 3 Operational Settings + 21 Sensors = 24 total (21 features en FD001 tras descartes de varianza)
         expected_cols = [c for c in df.columns if c not in [id_col, cycle_col, 'RUL', 'Unnamed: 0']]
-        if len(expected_cols) != getattr(scaler, 'n_features_in_', len(expected_cols)):
-            # Construcción estándar C-MAPSS de 24 señales
-            expected_cols = [f'setting_{i}' for i in range(1, 4)] + [f'sensor_{i}' for i in range(1, 22)]
-            expected_cols = [c for c in expected_cols if c in df.columns]
 
-    # Construir X_input asegurando el número exacto de características del Scaler (ej. 21)
+    # Ajuste de dimensión para el MinMaxScaler si requiere n_features_in_
     if hasattr(scaler, "n_features_in_") and len(expected_cols) != scaler.n_features_in_:
-        # Filtrar solo columnas de sensores/settings existentes hasta igualar el n_features_in_
         candidates = [c for c in df.columns if 'sensor' in c.lower() or 'setting' in c.lower()]
         expected_cols = candidates[:scaler.n_features_in_]
 
@@ -90,7 +94,6 @@ if model is not None and df is not None:
     try:
         raw_scaled = scaler.transform(X_input.values)
         
-        # Intentar predecir con DataFrame o con Array según requiera el modelo
         try:
             if hasattr(model, "feature_names_in_"):
                 X_scaled_df = pd.DataFrame(raw_scaled, columns=list(model.feature_names_in_))
