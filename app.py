@@ -60,16 +60,16 @@ if model is not None and df is not None:
     # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle]
     
-    # Extraer las características esperadas por el escalador o el modelo
-    if hasattr(scaler, "feature_names_in_"):
-        expected_cols = list(scaler.feature_names_in_)
-    elif hasattr(model, "feature_names_in_"):
+    # 1. Obtener los nombres de características exactos del modelo o escalador
+    if hasattr(model, "feature_names_in_"):
         expected_cols = list(model.feature_names_in_)
+    elif hasattr(scaler, "feature_names_in_"):
+        expected_cols = list(scaler.feature_names_in_)
     else:
         ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19', 'Unnamed: 0']
         expected_cols = [c for c in df.columns if c not in ignore_cols]
 
-    # Construir X_input garantizando todas las columnas esperadas sin soltar KeyError
+    # 2. Construir matriz de entrada garantizando columnas exactas
     X_input = pd.DataFrame()
     for col in expected_cols:
         if col in current_row.columns:
@@ -77,9 +77,15 @@ if model is not None and df is not None:
         else:
             X_input[col] = 0.0
             
-    # Predicción
-    X_scaled = scaler.transform(X_input)
-    rul_pred = float(model.predict(X_scaled)[0])
+    # 3. Escalamiento y Reconstrucción de DataFrame con nombres de columnas
+    scaled_array = scaler.transform(X_input)
+    X_scaled_df = pd.DataFrame(scaled_array, columns=expected_cols)
+    
+    # 4. Predicción robusta (intenta con DataFrame, si XGBoost pide array hace el fallback)
+    try:
+        rul_pred = float(model.predict(X_scaled_df)[0])
+    except Exception:
+        rul_pred = float(model.predict(scaled_array)[0])
     
     # Métricas Principales
     col1, col2, col3 = st.columns(3)
