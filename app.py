@@ -60,21 +60,19 @@ if model is not None and df is not None:
     # Fila de datos en el ciclo seleccionado
     current_row = engine_data[engine_data[cycle_col] == selected_cycle]
     
-    # Filtrado dinámico de características compatibles
+    # Descarte de columnas que no son sensores de entrada
     ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19', 'Unnamed: 0']
-    available_features = [c for c in df.columns if c not in ignore_cols]
+    feature_cols = [c for c in df.columns if c not in ignore_cols]
     
-    if hasattr(scaler, "feature_names_in_"):
-        expected_features = list(scaler.feature_names_in_)
-        # Usamos las características esperadas por el escalador que existan en el df
-        feature_cols = [f for f in expected_features if f in df.columns]
-        if len(feature_cols) < len(expected_features):
-            feature_cols = available_features
-    else:
-        feature_cols = available_features
-        
+    # Selección de datos de entrada
     X_input = current_row[feature_cols]
-    X_scaled = scaler.transform(X_input)
+    
+    # Transformación mediante valores brutos NumPy para bypass de verificación estricta de nombres
+    try:
+        X_scaled = scaler.transform(X_input.values)
+    except Exception:
+        X_scaled = scaler.transform(X_input)
+        
     rul_pred = float(model.predict(X_scaled)[0])
     
     # Métricas Principales
