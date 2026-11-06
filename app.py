@@ -5,7 +5,7 @@ import joblib
 import os
 import plotly.express as px
 
-# Configuración de página
+# Configuración inicial de la página
 st.set_page_config(
     page_title="Predicción RUL - NASA C-MAPSS",
     page_icon="✈️",
@@ -16,7 +16,7 @@ st.title("✈️ Sistema de Mantenimiento Predictivo & Estimación de RUL")
 st.markdown("### Monitoreo de Salud Térmica y Degradación en Motores Turbofán (Dataset FD001)")
 st.write("---")
 
-# Carga de Artefactos
+# Carga segura de Artefactos de Modelo y Escalador
 @st.cache_resource
 def load_artifacts():
     try:
@@ -26,7 +26,7 @@ def load_artifacts():
         scaler = joblib.load(scaler_path)
         return model, scaler
     except Exception as e:
-        st.error(f"⚠️ Error cargando modelos o escaladores desde disco: {e}")
+        st.error(f"⚠️ Error al cargar artefactos desde la ruta local: {e}")
         return None, None
 
 @st.cache_data
@@ -34,19 +34,21 @@ def load_data():
     try:
         data_path = os.path.join("data", "processed", "train_processed_df.csv")
         df = pd.read_csv(data_path)
+        # Limpiar espacios en blanco accidentales en nombres de columnas
+        df.columns = df.columns.str.strip()
         return df
     except Exception as e:
-        st.error(f"⚠️ Error cargando datos procesados desde data/processed: {e}")
+        st.error(f"⚠️ Error al cargar el archivo procesado CSV: {e}")
         return None
 
-# Cargar componentes
+# Cargar componentes principales
 model, scaler = load_artifacts()
 df = load_data()
 
 if model is not None and df is not None:
-    # Identificación dinámica de columnas de índice y tiempo
-    id_col = 'unit_nr' if 'unit_nr' in df.columns else ('engine_id' if 'engine_id' in df.columns else df.columns[0])
-    cycle_col = "time_cycles" if "time_cycles" in df.columns else ("cycle" if "cycle" in df.columns else df.columns[1])
+    # 1. Identificación dinámica de columnas de control (ID y Ciclo)
+    id_col = next((col for col in ['unit_nr', 'engine_id', 'id'] if col in df.columns), df.columns[0])
+    cycle_col = next((col for col in ['time_cycles', 'cycle', 'time'] if col in df.columns), df.columns[1])
     
     # Sidebar: Selección de Unidad y Ciclo
     st.sidebar.header("⚙️ Panel de Control de Inspección")
@@ -58,36 +60,57 @@ if model is not None and df is not None:
     selected_cycle = st.sidebar.slider("Ciclo de Vuelo Actual:", min_value=1, max_value=max_cycle, value=max_cycle)
     
     # Fila de datos en el ciclo seleccionado
-    current_row = engine_data[engine_data[cycle_col] == selected_cycle]
+    current_row = engine_data[engine_data[cycle_col] == selected_cycle].copy()
     
-    # Extraer las características EXACTAS registradas dentro del modelo XGBoost
+    # 2. Extracción de las 16 características esperadas (Fallback multinivel)
+    expected_cols = None
+    
+    # Intento A: Nombres desde el Booster de XGBoost
     try:
-        expected_cols = model.get_booster().feature_names
+        booster_cols = model.get_booster().feature_names
+        if booster_cols is not None and len(booster_cols) > 0:
+            expected_cols = list(booster_cols)
     except Exception:
+        pass
+        
+    # Intento B: Nombres desde scikit-learn feature_names_in_
+    if expected_cols is None:
         if hasattr(model, "feature_names_in_"):
             expected_cols = list(model.feature_names_in_)
         elif hasattr(scaler, "feature_names_in_"):
             expected_cols = list(scaler.feature_names_in_)
-        else:
-            ignore_cols = [id_col, cycle_col, 'RUL', 'setting_3', 'sensor_1', 'sensor_5', 'sensor_6', 'sensor_10', 'sensor_16', 'sensor_18', 'sensor_19', 'Unnamed: 0']
-            expected_cols = [c for c in df.columns if c not in ignore_cols]
+            
+    # Intento C: Lista predeterminada de 16 características estándar (FD001)
+    if expected_cols is None:
+        expected_cols = ['setting_1', 'setting_2', 'sensor_2', 'sensor_3', 'sensor_4', 
+                         'sensor_7', 'sensor_8', 'sensor_9', 'sensor_11', 'sensor_12', 
+                         'sensor_13', 'sensor_14', 'sensor_15', 'sensor_17', 'sensor_20', 'sensor_21']
 
-    # Construir X_input mapeando exactamente los nombres solicitados por XGBoost
-    X_input = pd.DataFrame()
+    # 3. Construir vector de datos alineado sin nulos ni KeyErrors
+    X_input = pd.DataFrame(index=[0])
     for col in expected_cols:
         if col in current_row.columns:
-            X_input[col] = current_row[col].values
+            val = current_row[col].values[0]
+            X_input[col] = float(val) if pd.notnull(val) else 0.0
         else:
             X_input[col] = 0.0
 
-    # Escalar usando la matriz numérica y reconstruir DataFrame etiquetado para XGBoost
-    raw_scaled = scaler.transform(X_input.values)
-    X_scaled_df = pd.DataFrame(raw_scaled, columns=expected_cols)
+    # 4. Pipeline de Predicción Universal con Bypass de Firma
+    try:
+        # Intento 1: Transformación numérica con nombres de columna de DataFrame
+        raw_scaled = scaler.transform(X_input.values)
+        X_scaled_df = pd.DataFrame(raw_scaled, columns=expected_cols)
+        rul_pred = float(model.predict(X_scaled_df)[0])
+    except Exception:
+        try:
+            # Intento 2: Arreglo de NumPy directo (Bypass para modelos sin nombres)
+            raw_scaled = scaler.transform(X_input.values.astype(np.float32))
+            rul_pred = float(model.predict(raw_scaled)[0])
+        except Exception as e_pred:
+            st.error(f"Error procesando la inferencia del modelo: {e_pred}")
+            rul_pred = 0.0
     
-    # Predicción final sin descalce de nombres
-    rul_pred = float(model.predict(X_scaled_df)[0])
-    
-    # Métricas Principales
+    # 5. Visualización de Métricas Principales
     col1, col2, col3 = st.columns(3)
     col1.metric("Motor Bajo Análisis", f"Unidad #{selected_engine}")
     col2.metric("Ciclo Evaluado", f"{selected_cycle} / {max_cycle}")
@@ -95,7 +118,7 @@ if model is not None and df is not None:
     
     st.write("---")
     
-    # Diagnóstico y Alertas Tácticas (PdM)
+    # 6. Diagnóstico Táctico y Alertas de Mantenimiento (PdM)
     st.subheader("🔴 / 🟡 / 🟢 Diagnóstico de Mantenimiento Predictivo")
     if rul_pred > 45:
         st.success(f"🟢 **ESTADO NOMINAL:** El motor #{selected_engine} posee un margen seguro de {rul_pred:.1f} ciclos remanentes. Operación continua aprobada.")
@@ -106,17 +129,27 @@ if model is not None and df is not None:
         
     st.write("---")
     
-    # Gráfico de Telemetría Dinámica
+    # 7. Gráfico Dinámico de Telemetría e Inspección Visual
     st.subheader("📊 Histórico de Telemetría y Monitoreo de Sensores Críticos")
-    sensor_options = [c for c in expected_cols if 'sensor' in c and c in engine_data.columns]
-    if not sensor_options:
-        sensor_options = [c for c in engine_data.columns if 'sensor' in c]
-        
-    sensor_to_plot = st.selectbox("Seleccionar Sensor para Inspeccionar Visualmente:", sensor_options)
     
-    fig = px.line(engine_data, x=cycle_col, y=sensor_to_plot, title=f"Evolución de {sensor_to_plot} en Motor #{selected_engine}")
-    fig.add_vline(x=selected_cycle, line_dash="dash", line_color="red", annotation_text="Ciclo Seleccionado")
-    st.plotly_chart(fig, use_container_width=True)
+    # Buscar sensores disponibles en el dataset para el selector del gráfico
+    sensor_options = [c for c in df.columns if 'sensor' in c.lower()]
+    if not sensor_options:
+        sensor_options = [c for c in expected_cols if c in df.columns]
+        
+    if sensor_options:
+        sensor_to_plot = st.selectbox("Seleccionar Sensor para Inspeccionar Visualmente:", sensor_options)
+        
+        fig = px.line(
+            engine_data, 
+            x=cycle_col, 
+            y=sensor_to_plot, 
+            title=f"Evolución de {sensor_to_plot} en Motor #{selected_engine}"
+        )
+        fig.add_vline(x=selected_cycle, line_dash="dash", line_color="red", annotation_text="Ciclo Seleccionado")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No se encontraron columnas de sensores de telemetría para graficar.")
 
 else:
-    st.warning("Verificando disponibilidad de artefactos en data/processed/ y models/...")
+    st.warning("Verificando la disponibilidad de los artefactos en data/processed/ y models/...")
