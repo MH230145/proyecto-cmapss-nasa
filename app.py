@@ -100,18 +100,18 @@ if model is not None and df is not None:
     st.write("---")
     
     # Diagnóstico de Mantenimiento Predictivo
-    st.subheader("🔴 / 🟡 / 🟢 Diagnóstico de Mantenimiento Predictivo")
+    st.subheader("Diagnóstico de Mantenimiento Predictivo")
     if rul_pred > 45:
-        st.success(f"🟢 **ESTADO NOMINAL:** El motor #{selected_engine} posee un margen seguro de {rul_pred:.1f} ciclos remanentes. Operación continua aprobada.")
+        st.success(f"**ESTADO NOMINAL:** El motor #{selected_engine} posee un margen seguro de {rul_pred:.1f} ciclos remanentes. Operación continua aprobada.")
     elif 20 < rul_pred <= 45:
-        st.warning(f"🟡 **ADVERTENCIA:** Vida útil remanente crítica ({rul_pred:.1f} ciclos). Se recomienda programar inspección boroscópica en el HPC.")
+        st.warning(f"**ADVERTENCIA:** Vida útil remanente crítica ({rul_pred:.1f} ciclos). Se recomienda programar inspección boroscópica en el HPC.")
     else:
-        st.error(f"🔴 **ALERTA MÁXIMA:** Retiro inmediato recomendado. RUL estimado de {rul_pred:.1f} ciclos cercano al umbral de falla funcional.")
+        st.error(f"**ALERTA MÁXIMA:** Retiro inmediato recomendado. RUL estimado de {rul_pred:.1f} ciclos cercano al umbral de falla funcional.")
         
     st.write("---")
     
     # Gráfico Dinámico de Telemetría
-    st.subheader("📊 Histórico de Telemetría y Monitoreo de Sensores Críticos")
+    st.subheader("Histórico de Telemetría y Monitoreo de Sensores Críticos")
     sensor_options = [c for c in df.columns if 'sensor' in c.lower()]
     if sensor_options:
         sensor_to_plot = st.selectbox("Seleccionar Sensor para Inspeccionar Visualmente:", sensor_options)
